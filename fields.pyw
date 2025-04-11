@@ -77,6 +77,7 @@ if __name__ == '__main__':  # main file execution
                                 newLunch = stuID
                                 newEmail = stuID + EMAIL_SUFFIX
                                 coursesChanged = False
+                                numCourses = 0  # set the default to 0
 
                                 # if the student is at the high school, look for their current classes, output number of classes in current term
                                 if (student[2] == COURSES_SCHOOL_ID and student[3] == 0):  # only look at courses for students in specific building who are active
