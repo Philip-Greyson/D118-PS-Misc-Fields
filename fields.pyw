@@ -31,7 +31,7 @@ CNOPTS = pysftp.CnOpts(knownhosts='known_hosts')  # connection options to use th
 OUTPUT_FILE_NAME = 'miscFields.txt'
 OUTPUT_FILE_DIRECTORY = '/sftp/miscFields/'
 EMAIL_SUFFIX = '@d118.org'
-COURSES_SCHOOL_ID = 5
+COURSES_SCHOOL_ID = 5  # the school ID where we will check for the number of current courses for each student.
 
 print(f"Database Username: {un} |Password: {pw} |Server: {cs}")  # debug so we can see where oracle is trying to connect to/with
 print(f'D118 SFTP Username: {D118_SFTP_UN} | D118 SFTP Password: {D118_SFTP_PW} | D118 SFTP Server: {D118_SFTP_HOST}')  # debug so we can see what info sftp connection is using
@@ -56,6 +56,7 @@ if __name__ == '__main__':  # main file execution
                         # find the current term for the high school, used to find the high schooler's courses later
                         cur.execute("SELECT id, firstday, lastday, schoolid, yearid FROM terms WHERE IsYearRec = 0 AND schoolid = :school ORDER BY dcid DESC", school=COURSES_SCHOOL_ID)  # get a list of terms for a building, filtering to non-full years
                         termRows = cur.fetchall()
+                        currentTerm = None  # set the current term to none so if we dont find a current term (like in the summer), we can check for it later
                         for term in termRows:
                             print(f'DBUG: Found term {term}', file=log)  # debug to see the terms
                             if (term[1] < today) and term[2] > today:
@@ -63,7 +64,7 @@ if __name__ == '__main__':  # main file execution
                                 print(f'DBUG: Current term is to {currentTerm} at building {COURSES_SCHOOL_ID}')
                                 print(f'DBUG: Current term is to {currentTerm} at building {COURSES_SCHOOL_ID}', file=log)
 
-                        cur.execute('SELECT students.student_number, students.id, students.schoolid, students.enroll_status, students.lunch_id, students.grade_level, students.dcid, U_StudentsUserFields.custom_student_email, u_def_ext_students0.totalcurrentcourses FROM students LEFT JOIN u_studentsuserfields ON students.dcid = u_studentsuserfields.studentsdcid LEFT JOIN u_def_ext_students0 ON students.dcid = u_def_ext_students0.studentsdcid ORDER BY student_number DESC')
+                        cur.execute('SELECT students.student_number, students.id, students.schoolid, students.enroll_status, students.lunch_id, students.grade_level, students.dcid, U_StudentsUserFields.custom_student_email, u_def_ext_students0.totalcurrentcourses FROM students LEFT JOIN u_studentsuserfields ON students.dcid = u_studentsuserfields.studentsdcid LEFT JOIN u_def_ext_students0 ON students.dcid = u_def_ext_students0.studentsdcid WHERE students.enroll_status = 0 OR students.enroll_status = -1 ORDER BY student_number DESC')
                         students = cur.fetchall()  # fetchall() is used to fetch all records from result set and store the data from the query into the rows variable
                         for student in students:
                             try:  # do each student in a try/except block so if one throws an error we can skip to the next
@@ -80,18 +81,22 @@ if __name__ == '__main__':  # main file execution
                                 numCourses = 0  # set the default to 0
 
                                 # if the student is at the high school, look for their current classes, output number of classes in current term
-                                if (student[2] == COURSES_SCHOOL_ID and student[3] == 0):  # only look at courses for students in specific building who are active
-                                    cur.execute('SELECT cc.course_number, courses.course_name, cc.sectionid FROM cc LEFT JOIN courses ON cc.course_number = courses.course_number WHERE courses.credit_hours != 0 AND cc.termid = :term AND cc.studentid = :internalID', term=currentTerm, internalID=internalID)
-                                    courseRows = cur.fetchall()
-                                    numCourses = len(courseRows)
-                                    print(f'INFO: Student {stuID} has {numCourses} current classes')
-                                    print(f'INFO: Student {stuID} has {numCourses} current classes', file=log)
-                                    print(f'DBUG: {courseRows}')
-                                    print(f'DBUG: {courseRows}', file=log)
-                                    if numCourses != currentCourseNumber:
-                                        print(f'INFO: Current custom course count of {currentCourseNumber} does not match new count of {numCourses}, updating')
-                                        print(f'INFO: Current custom course count of {currentCourseNumber} does not match new count of {numCourses}, updating', file=log)
-                                        coursesChanged = True  # set flag to true so we know to output
+                                if (student[2] == COURSES_SCHOOL_ID and student[3] == 0 and currentTerm):  # only look at courses for students in specific building who are active, where we have found a current term
+                                    try:
+                                        cur.execute('SELECT cc.course_number, courses.course_name, cc.sectionid FROM cc LEFT JOIN courses ON cc.course_number = courses.course_number WHERE courses.credit_hours != 0 AND cc.termid = :term AND cc.studentid = :internalID', term=currentTerm, internalID=internalID)
+                                        courseRows = cur.fetchall()
+                                        numCourses = len(courseRows)
+                                        print(f'INFO: Student {stuID} has {numCourses} current classes')
+                                        print(f'INFO: Student {stuID} has {numCourses} current classes', file=log)
+                                        print(f'DBUG: {courseRows}')
+                                        print(f'DBUG: {courseRows}', file=log)
+                                        if numCourses != currentCourseNumber:
+                                            print(f'INFO: Current custom course count of {currentCourseNumber} does not match new count of {numCourses}, updating')
+                                            print(f'INFO: Current custom course count of {currentCourseNumber} does not match new count of {numCourses}, updating', file=log)
+                                            coursesChanged = True  # set flag to true so we know to output
+                                    except Exception as er:
+                                        print(f'ERROR while finding number of courses for student {stuID}: {er}')
+                                        print(f'ERROR while finding number of courses for student {stuID}: {er}', file=log)
 
                                 if (currentEmail != newEmail) or (currentLunch != newLunch) or coursesChanged:
                                     if currentEmail != newEmail:  # just used for logging
